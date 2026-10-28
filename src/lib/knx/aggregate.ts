@@ -626,6 +626,46 @@ const NAME_ACTUAL_RE = /[\s_-]*(ist[\s_-]?temp(eratur)?|ist[\s_-]?wert|actual[\s
 const NAME_SETPOINT_RE = /[\s_-]*(basis[\s_-]?soll(wert)?|soll[\s_-]?temp(eratur)?|basis[\s_-]?setpoint)$/i;
 const PLACEHOLDER_ROOM_RE = /^(zimmername|raumname|room[\s_-]?name)$/i;
 
+const NAME_OPERATION_MODE_RE =
+  /^(.*?)[\s_-]*(?:(rm|status|state|r[uü]ckmeldung)[\s_-]+)?(?:betriebs[\s_-]?(?:vorwahl|art|modus)|operation[\s_-]?mode|hvac[\s_-]?mode)(?:[\s_-]+(status|state))?$/i;
+
+/**
+ * Fills `operation_mode[_state]_address` of climates from the names `<room>_Betriebsvorwahl` and
+ * `<room>_RM_Betriebsvorwahl` when ETS has no datapoint type for them (or 20.102). The room is the name
+ * of the temperature GA without its role (`<room>_IST-Temp`).
+ */
+export function addNameBasedOperationModes(gas: GroupAddress[], aggs: ClimateAggregate[]): void {
+  const byAddress = new Map(gas.map((g) => [g.address, g]));
+  const modes = new Map<string, { command?: GroupAddress; state?: GroupAddress }>();
+  for (const ga of gas) {
+    const m = NAME_OPERATION_MODE_RE.exec(ga.name ?? "");
+    const dpt = normalizeDptToHyphen(ga.dpt) || undefined;
+    if (!m || (dpt !== undefined && dpt !== "20-102")) continue;
+    const room = tidyClimateName(m[1]).toLowerCase();
+    if (!room) continue;
+    const found = modes.get(room) ?? modes.set(room, {}).get(room)!;
+    const role = m[2] || m[3] ? "state" : "command";
+    found[role] ??= ga;
+  }
+  for (const agg of aggs) {
+    const actual = agg.temperature_address ? byAddress.get(agg.temperature_address) : undefined;
+    const match = actual ? NAME_ACTUAL_RE.exec(actual.name ?? "") : null;
+    if (!actual || !match) continue;
+    const found = modes.get(tidyClimateName((actual.name ?? "").slice(0, match.index)).toLowerCase());
+    if (!found) continue;
+    if (found.command && agg.operation_mode_address === undefined) {
+      agg.operation_mode_address = found.command.address;
+      agg.consumedIds.add(found.command.id);
+    }
+    // a state address that is just the command GA is replaced by the real status GA
+    const current = agg.operation_mode_state_address;
+    if (found.state && (current === undefined || current === found.command?.address)) {
+      agg.operation_mode_state_address = found.state.address;
+      agg.consumedIds.add(found.state.id);
+    }
+  }
+}
+
 /**
  * Climate for rooms whose GAs are not linked to a device in ETS. Groups GAs named `<room>_<role>`
  * (role: actual temperature, base setpoint, setpoint shift) that no link-driven climate uses.

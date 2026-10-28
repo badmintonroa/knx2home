@@ -26,6 +26,7 @@ import {
   buildCoverAggregates,
   buildClimateAggregates,
   buildNameBasedClimateAggregates,
+  addNameBasedOperationModes,
   buildChannelLightAggregates,
   buildChannelCoverAggregates,
   buildWeatherAggregates,
@@ -211,6 +212,7 @@ export function buildHaEntities(
       new Set(linkClimateAggs.map((c) => c.temperature_address!))
     ),
   ];
+  addNameBasedOperationModes((catalog as LegacyCatalog).group_addresses ?? [], climateAggs);
   const climateIds = new Set(climateAggs.flatMap((c) => [...c.consumedIds]));
 
   // actuator channel covers first; name based covers only for GAs they did not use

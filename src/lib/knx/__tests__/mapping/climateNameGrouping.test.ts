@@ -1,9 +1,17 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { buildNameBasedClimateAggregates } from "@/lib/knx/aggregate";
+import {
+  addNameBasedOperationModes,
+  buildNameBasedClimateAggregates,
+} from "@/lib/knx/aggregate";
 import type { GroupAddress } from "@/lib/types";
 
-const ga = (id: string, name: string, address: string, dpt?: string): GroupAddress => ({
+const ga = (
+  id: string,
+  name: string,
+  address: string,
+  dpt?: string,
+): GroupAddress => ({
   id,
   name,
   address,
@@ -38,6 +46,36 @@ describe("name based climate grouping", () => {
     expect(out).toHaveLength(1);
     expect(out[0].setpoint_shift_address).toBe("5/1/3");
     expect(out[0].setpoint_shift_mode).toBe("DPT9002");
-    expect(buildNameBasedClimateAggregates(gas, new Set(["5/1/1"]))).toHaveLength(0);
+    expect(
+      buildNameBasedClimateAggregates(gas, new Set(["5/1/1"])),
+    ).toHaveLength(0);
+  });
+
+  it("adds the operation mode by name for untyped or 20.102 GAs only", () => {
+    const gas = [
+      ga("a", "Office Actual temperature", "6/0/1", "9.001"),
+      ga("b", "Office Operation mode", "6/0/2", "20.102"),
+      ga("c", "Office Operation mode status", "6/0/3", "20.102"),
+      ga("d", "Hall Actual temperature", "6/0/4", "9.001"),
+      ga("e", "Hall HVAC mode", "6/0/5", "1.001"),
+    ];
+    const aggs = [
+      {
+        name: "Office",
+        temperature_address: "6/0/1",
+        consumedIds: new Set<string>(),
+      },
+      {
+        name: "Hall",
+        temperature_address: "6/0/4",
+        consumedIds: new Set<string>(),
+      },
+    ];
+    addNameBasedOperationModes(gas, aggs);
+    expect(aggs[0]).toMatchObject({
+      operation_mode_address: "6/0/2",
+      operation_mode_state_address: "6/0/3",
+    });
+    expect(aggs[1]).not.toHaveProperty("operation_mode_address");
   });
 });
