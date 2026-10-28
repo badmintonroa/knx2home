@@ -25,6 +25,7 @@ import {
   buildSwitchAggregates,
   buildCoverAggregates,
   buildClimateAggregates,
+  buildNameBasedClimateAggregates,
   buildChannelLightAggregates,
   buildChannelCoverAggregates,
   buildWeatherAggregates,
@@ -201,13 +202,24 @@ export function buildHaEntities(
       switches.push(entry);
   }
 
+  // climates first: their GAs (e.g. a 1-bit setpoint shift) must not turn up as covers
+  const linkClimateAggs = buildClimateAggregates((catalog as LegacyCatalog).group_addresses ?? [], comObjectLinks);
+  const climateAggs = [
+    ...linkClimateAggs,
+    ...buildNameBasedClimateAggregates(
+      (catalog as LegacyCatalog).group_addresses ?? [],
+      new Set(linkClimateAggs.map((c) => c.temperature_address!))
+    ),
+  ];
+  const climateIds = new Set(climateAggs.flatMap((c) => [...c.consumedIds]));
+
   // actuator channel covers first; name based covers only for GAs they did not use
   const channelCoverAggs = buildChannelCoverAggregates((catalog as LegacyCatalog).group_addresses ?? [], comObjectLinks);
   const channelCoverIds = new Set(channelCoverAggs.flatMap((c) => [...c.consumedIds]));
   const coverAggs = [
     ...channelCoverAggs,
     ...buildCoverAggregates(
-      ((catalog as LegacyCatalog).group_addresses ?? []).filter((g) => !channelCoverIds.has(g.id)),
+      ((catalog as LegacyCatalog).group_addresses ?? []).filter((g) => !channelCoverIds.has(g.id) && !climateIds.has(g.id)),
       linksByGa
     ),
   ];
@@ -228,7 +240,6 @@ export function buildHaEntities(
       covers.push(entry);
   }
 
-  const climateAggs = buildClimateAggregates((catalog as LegacyCatalog).group_addresses ?? [], comObjectLinks);
   for (const { consumedIds: _consumed, ...climate } of climateAggs) {
     if (!(dropReserve && (climate.name ?? "").trim().toLowerCase() === "reserve"))
       climates.push(climate);

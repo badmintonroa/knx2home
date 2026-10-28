@@ -504,10 +504,19 @@ const TARGET_TEMP_RE = /\b(soll|sollwert|setpoint|target|basissollwert)\b/i;
 const CLIMATE_NAME_STRIP_RE =
   /\b(soll|sollwert|basissollwert|setpoint|target|ist|istwert|actual|temperatur|temperature)\b/gi;
 
+const CLIMATE_NAME_BASIS_RE = /[\s_-]*basis[\s_-]*$/i;
+const CLIMATE_NAME_TAIL_RE = /([\s_-]+(h|heizung))?[\s_-]*$/i;
+
+/** Drops dangling separators and a trailing room-heating marker (`Room_H_` -> `Room`). */
+function tidyClimateName(name: string): string {
+  return name.replace(CLIMATE_NAME_TAIL_RE, "") || name;
+}
+
 function climateName(ga?: GroupAddress): string | undefined {
   if (!ga?.name) return undefined;
   const stripped = ga.name.replace(CLIMATE_NAME_STRIP_RE, "").replace(/\s+/g, " ").trim();
-  return stripped || ga.name;
+  const tidy = tidyClimateName(stripped.replace(CLIMATE_NAME_BASIS_RE, ""));
+  return tidy || ga.name;
 }
 
 /**
@@ -606,6 +615,71 @@ export function buildClimateAggregates(
     const heatCool = heatCoolStateOf(links[0]?.deviceId);
     if (heatCool) agg.heat_cool_state_address = heatCool.address;
 
+    out.push(agg);
+  }
+  return out;
+}
+
+/** ====================== NAME-BASED CLIMATE AGGREGATE ====================== */
+const NAME_SHIFT_RE = /[\s_-]*(sollwert[\s_-]?verschiebung|soll[\s_-]?verschiebung|setpoint[\s_-]?shift)$/i;
+const NAME_ACTUAL_RE = /[\s_-]*(ist[\s_-]?temp(eratur)?|ist[\s_-]?wert|actual[\s_-]?temp(erature)?)$/i;
+const NAME_SETPOINT_RE = /[\s_-]*(basis[\s_-]?soll(wert)?|soll[\s_-]?temp(eratur)?|basis[\s_-]?setpoint)$/i;
+const PLACEHOLDER_ROOM_RE = /^(zimmername|raumname|room[\s_-]?name)$/i;
+
+/**
+ * Climate for rooms whose GAs are not linked to a device in ETS. Groups GAs named `<room>_<role>`
+ * (role: actual temperature, base setpoint, setpoint shift) that no link-driven climate uses.
+ * Each of them must be untyped or have the datapoint type of its role. `taken` holds the
+ * temperature addresses of the link-driven climates.
+ */
+export function buildNameBasedClimateAggregates(
+  gas: GroupAddress[],
+  taken: Set<string>
+): ClimateAggregate[] {
+  type Role = "actual" | "setpoint" | "shift";
+  const roleChecks: Array<[Role, RegExp, Array<string | undefined>]> = [
+    ["actual", NAME_ACTUAL_RE, [undefined, "9-1"]],
+    ["setpoint", NAME_SETPOINT_RE, [undefined, "9-1"]],
+    ["shift", NAME_SHIFT_RE, [undefined, "9-2", "6-10", "1-7"]],
+  ];
+  const roomNames = new Map<string, string>();
+  const rooms = new Map<string, Partial<Record<Role, GroupAddress>>>();
+  for (const ga of gas) {
+    const name = ga.name ?? "";
+    const dpt = normalizeDptToHyphen(ga.dpt) || undefined;
+    for (const [role, re, dpts] of roleChecks) {
+      const m = re.exec(name);
+      if (!m) continue;
+      const room = tidyClimateName(name.slice(0, m.index));
+      if (dpts.includes(dpt) && room && !PLACEHOLDER_ROOM_RE.test(room)) {
+        const key = room.toLowerCase();
+        if (!roomNames.has(key)) roomNames.set(key, room);
+        const found = rooms.get(key) ?? rooms.set(key, {}).get(key)!;
+        found[role] ??= ga;
+      }
+      break;
+    }
+  }
+
+  const out: ClimateAggregate[] = [];
+  for (const [key, { actual, setpoint, shift }] of rooms) {
+    if (!actual || !setpoint || taken.has(actual.address)) continue;
+    const agg: ClimateAggregate = {
+      name: roomNames.get(key),
+      temperature_address: actual.address,
+      target_temperature_state_address: setpoint.address,
+      consumedIds: new Set([setpoint.id]),
+    };
+    if (shift) {
+      // a 1-bit step (1.007) cannot be a setpoint shift in Home Assistant; keep it out of the covers
+      agg.consumedIds.add(shift.id);
+      const shiftDpt = normalizeDptToHyphen(shift.dpt);
+      if (shiftDpt !== "1-7") {
+        agg.setpoint_shift_address = shift.address;
+        agg.setpoint_shift_state_address = shift.address;
+        agg.setpoint_shift_mode = shiftDpt === "6-10" ? "DPT6010" : "DPT9002";
+      }
+    }
     out.push(agg);
   }
   return out;
