@@ -127,7 +127,11 @@ export function guessEntityType(dpt: string | undefined, name: string, address?:
   if (isLA(name) || /(licht|light|lamp|dim)/.test(lowerName)) return "light";
   if (isCoverLike(name)) return "cover";
   if (isSceneLikeName(lowerName)) return "scene";
-  if (/(temp|temperatuur|temperature|hum|co2|lux|druk|pressure|wind|rain|flow)/.test(lowerName)) {
+  // Rain/precipitation without a datapoint type is a 1-bit alarm in practice, not an amount
+  if (!nd && /\b(niederschlag|regenalarm|regen)\b/.test(lowerName)) return "binary_sensor";
+  if (
+    /(temp|temperatuur|temperature|hum|co2|co₂|\bco\b|lux|helligkeit|druk|pressure|wind|rain|flow)/.test(lowerName)
+  ) {
     return "sensor";
   }
   if (isStatusName(name)) return "binary_sensor";
