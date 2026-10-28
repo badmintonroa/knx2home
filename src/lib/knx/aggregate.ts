@@ -912,8 +912,8 @@ const DPT_TO_HA: Record<string, string> = {
 const FALLBACK_PATTERNS = [
   [/temp|temperatuur/i, "temperature"],
   [/hum|humidity|rv/i, "humidity"],
-  [/lux|illuminance|lichtsterkte/i, "illuminance"],
-  [/\bppm\b|co2/i, "ppm"],
+  [/lux|illuminance|lichtsterkte|helligkeit/i, "illuminance"],
+  [/\bppm\b|co2|co₂|\bco\b/i, "ppm"],
   [/volt|spanning|voltage/i, "voltage"],
   [/(^|\W)(amp|stroom|current|ma|a)($|\W)/i, "curr"],
   [/power|vermogen|watt|kw\b/i, "power_2byte"],
