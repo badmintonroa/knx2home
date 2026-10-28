@@ -63,11 +63,13 @@ describe("name based climate grouping", () => {
       {
         name: "Office",
         temperature_address: "6/0/1",
+        target_temperature_state_address: "6/0/9",
         consumedIds: new Set<string>(),
       },
       {
         name: "Hall",
         temperature_address: "6/0/4",
+        target_temperature_state_address: "6/0/9",
         consumedIds: new Set<string>(),
       },
     ];
